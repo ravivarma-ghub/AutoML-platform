@@ -1,0 +1,56 @@
+app:
+  name: "Intelligent AutoML Platform"
+  version: "1.0.0"
+  debug: false
+
+data:
+  max_rows: 1000000
+  max_columns: 500
+  high_cardinality_threshold: 50
+  missing_threshold: 0.95
+
+ml:
+  random_state: 42
+  test_size: 0.2
+  cv_folds: 5
+  n_jobs: -1
+  scoring:
+    classification:
+      - "accuracy"
+      - "f1_weighted"
+      - "roc_auc_ovr_weighted"
+      - "precision_weighted"
+      - "recall_weighted"
+    regression:
+      - "r2"
+      - "neg_mean_squared_error"
+      - "neg_mean_absolute_error"
+      - "neg_root_mean_squared_error"
+
+hyperparameter_search:
+  method: "optuna"          # options: grid, random, optuna
+  optuna_trials: 50
+  random_search_iter: 100
+  timeout: 3600             # seconds; null to disable
+
+features:
+  selection_method: "auto"  # auto, variance, correlation, kbest, model
+  max_features: null        # null = no hard cap
+  variance_threshold: 0.01
+  correlation_threshold: 0.95
+
+monitoring:
+  drift_threshold_psi: 0.2
+  drift_threshold_ks: 0.05
+  prediction_drift_threshold: 0.1
+
+mlflow:
+  tracking_uri: "./mlruns"
+  experiment_name: "automl_experiments"
+
+database:
+  url: "sqlite:///./automl.db"
+
+logging:
+  level: "INFO"
+  file: "logs/automl.log"

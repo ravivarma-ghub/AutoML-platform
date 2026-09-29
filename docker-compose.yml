@@ -1,0 +1,177 @@
+# =============================================================================
+# Intelligent AutoML Platform — Docker Compose
+# Services: api, streamlit, mlflow, db (PostgreSQL 15)
+# =============================================================================
+
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Named volumes — persisted across container restarts
+# ---------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  models_data:
+    driver: local
+  reports_data:
+    driver: local
+  logs_data:
+    driver: local
+  mlruns_data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Shared network
+# ---------------------------------------------------------------------------
+networks:
+  automl_net:
+    driver: bridge
+
+# ---------------------------------------------------------------------------
+# Re-usable anchor for common environment variables
+# ---------------------------------------------------------------------------
+x-common-env: &common-env
+  APP_NAME: ${APP_NAME:-Intelligent AutoML Platform}
+  DEBUG: ${DEBUG:-false}
+  DATABASE_URL: ${DATABASE_URL:-postgresql://automl:automl@db:5432/automl}
+  MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+  MODEL_REGISTRY_PATH: ${MODEL_REGISTRY_PATH:-/app/models}
+  REPORTS_PATH: ${REPORTS_PATH:-/app/reports}
+  LOGS_PATH: ${LOGS_PATH:-/app/logs}
+  SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+  CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8501","http://localhost:3000"]}
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # ── PostgreSQL 15 ────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: automl_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-automl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-automl}
+      POSTGRES_DB: ${POSTGRES_DB:-automl}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - automl_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-automl} -d ${POSTGRES_DB:-automl}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── MLflow Tracking Server ───────────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.9.2
+    container_name: automl_mlflow
+    restart: unless-stopped
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://${POSTGRES_USER:-automl}:${POSTGRES_PASSWORD:-automl}@db:5432/${POSTGRES_DB:-automl}
+      --default-artifact-root /mlruns
+      --host 0.0.0.0
+      --port 5000
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://${POSTGRES_USER:-automl}:${POSTGRES_PASSWORD:-automl}@db:5432/${POSTGRES_DB:-automl}
+    volumes:
+      - mlruns_data:/mlruns
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    networks:
+      - automl_net
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── FastAPI Application ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: automl-platform:latest
+    container_name: automl_api
+    restart: unless-stopped
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 2
+      --log-level info
+    environment:
+      <<: *common-env
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-8000}
+    volumes:
+      - models_data:/app/models
+      - reports_data:/app/reports
+      - logs_data:/app/logs
+      - mlruns_data:/app/mlruns
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - automl_net
+    depends_on:
+      db:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ── Streamlit Dashboard ──────────────────────────────────────────────────
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: automl-platform:latest
+    container_name: automl_streamlit
+    restart: unless-stopped
+    command: >
+      streamlit run app/ui/streamlit_app.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+      --server.enableCORS false
+      --server.enableXsrfProtection false
+    environment:
+      <<: *common-env
+      API_BASE_URL: ${API_BASE_URL:-http://api:8000}
+      STREAMLIT_SERVER_PORT: "8501"
+      STREAMLIT_SERVER_ADDRESS: "0.0.0.0"
+    volumes:
+      - models_data:/app/models:ro
+      - reports_data:/app/reports
+      - logs_data:/app/logs:ro
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    networks:
+      - automl_net
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

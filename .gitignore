@@ -1,0 +1,170 @@
+# =============================================================================
+# .gitignore — Python + ML Project
+# Intelligent AutoML Platform
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.so
+*.dylib
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+pip-wheel-metadata/
+share/python-wheels/
+.installed.cfg
+lib/
+lib64/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+pyvenv.cfg
+
+# ---------------------------------------------------------------------------
+# Environment & Secrets  ← NEVER commit these
+# ---------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+secrets/
+
+# ---------------------------------------------------------------------------
+# Testing
+# ---------------------------------------------------------------------------
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.cover
+*.log
+nosetests.xml
+test-results/
+
+# ---------------------------------------------------------------------------
+# Linting / Type checking
+# ---------------------------------------------------------------------------
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+
+# ---------------------------------------------------------------------------
+# Jupyter Notebooks
+# ---------------------------------------------------------------------------
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ---------------------------------------------------------------------------
+# ML / Data artefacts
+# ---------------------------------------------------------------------------
+# Raw and processed datasets
+data/raw/
+data/processed/
+data/external/
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.arrow
+
+# Trained model files
+models/
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.pt
+*.pth
+*.safetensors
+saved_model/
+
+# MLflow runs
+mlruns/
+mlartifacts/
+
+# Reports and figures (regenerate from code)
+reports/figures/
+reports/exports/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+
+# Logs
+logs/
+*.log
+
+# ---------------------------------------------------------------------------
+# Docker
+# ---------------------------------------------------------------------------
+# Keep Dockerfile and docker-compose in git; ignore override files
+docker-compose.override.yml
+
+# ---------------------------------------------------------------------------
+# IDEs / Editors
+# ---------------------------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# CI
+# ---------------------------------------------------------------------------
+# Keep .github/ in git
+# Ignore local act runner cache
+.act/
+
+# ---------------------------------------------------------------------------
+# Miscellaneous
+# ---------------------------------------------------------------------------
+*.bak
+*.tmp
+*.temp
+.cache/
+scratch/
+TODO.local
+NOTES.local

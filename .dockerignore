@@ -1,0 +1,108 @@
+# =============================================================================
+# .dockerignore — keeps the build context lean and avoids leaking secrets
+# =============================================================================
+
+# Python byte-code / caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+pip-wheel-metadata/
+share/python-wheels/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+
+# Environment files (never bake secrets into the image)
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# CI / CD
+.github/
+
+# Tests (not needed at runtime)
+tests/
+test_*.py
+*_test.py
+pytest.ini
+setup.cfg
+conftest.py
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Linters / formatters
+.ruff_cache/
+.mypy_cache/
+.flake8
+pyproject.toml
+
+# Documentation
+*.md
+*.rst
+docs/
+mkdocs.yml
+CHANGELOG*
+LICENSE
+CONTRIBUTING*
+
+# ML / data artifacts (mounted as volumes at runtime)
+models/
+reports/
+logs/
+mlruns/
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.feather
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+*.onnx
+*.pb
+
+# Notebooks (not served by the API)
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker artefacts
+Dockerfile*
+docker-compose*.yml
+
+# Makefile (not needed inside image)
+Makefile
+
+# Alembic migration history (optional — include if you run migrations inside container)
+# alembic/versions/

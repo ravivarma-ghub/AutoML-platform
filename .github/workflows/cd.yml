@@ -1,0 +1,193 @@
+# =============================================================================
+# Intelligent AutoML Platform — CD Pipeline
+# Triggers: push to main  OR  semantic-version tag (v*)
+# Jobs: build-and-push → deploy
+# =============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/automl-platform
+  REGISTRY: ghcr.io
+
+# Prevent concurrent deploys to the same environment
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1 — Build multi-arch image and push to GHCR
+  # ---------------------------------------------------------------------------
+  build-and-push:
+    name: "🏗️ Build & Push Image"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write    # needed for OIDC signing (cosign)
+
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch builds)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          # Tag strategy:
+          #   • branch push  → branch name + sha
+          #   • tag push     → semver + latest
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the published Docker image (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign --yes \
+            ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+
+  # ---------------------------------------------------------------------------
+  # Job 2 — Security scan of the published image
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: "🔐 Security Scan"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      security-events: write    # to upload SARIF to GitHub Security tab
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # Job 3 — Deploy via SSH (configurable target host)
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: "🚀 Deploy to ${{ startsWith(github.ref, 'refs/tags/v') && 'Production' || 'Staging' }}"
+    runs-on: ubuntu-latest
+    needs: [build-and-push, security-scan]
+    # Only deploy if SSH secrets are configured
+    if: >
+      vars.DEPLOY_HOST != '' &&
+      secrets.DEPLOY_SSH_KEY != ''
+
+    environment:
+      name: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'staging' }}
+      url: ${{ vars.DEPLOY_URL }}
+
+    steps:
+      - name: Checkout repository (for docker-compose.yml)
+        uses: actions/checkout@v4
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known_hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+      - name: Copy docker-compose to server
+        run: |
+          scp -o StrictHostKeyChecking=no \
+            docker-compose.yml \
+            ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }}:${{ vars.DEPLOY_PATH }}/
+
+      - name: Deploy via SSH — pull & restart
+        env:
+          DEPLOY_IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+        run: |
+          ssh -o StrictHostKeyChecking=no \
+            ${{ vars.DEPLOY_USER }}@${{ vars.DEPLOY_HOST }} \
+            "set -e
+             cd ${{ vars.DEPLOY_PATH }}
+             echo 'Pulling latest images...'
+             docker compose pull
+             echo 'Running DB migrations...'
+             docker compose run --rm api alembic upgrade head
+             echo 'Restarting services...'
+             docker compose up -d --remove-orphans
+             echo 'Pruning old images...'
+             docker image prune -f
+             echo '✅ Deploy complete — image: $DEPLOY_IMAGE_TAG'"
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          echo "Deployment status: $STATUS"
+          # Wire up Slack / Discord / email notification here if desired:
+          # curl -X POST "${{ secrets.SLACK_WEBHOOK }}" \
+          #   -H 'Content-type: application/json' \
+          #   --data "{\"text\":\"Deploy $STATUS — ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image-tag }}\"}"
